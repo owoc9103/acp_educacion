@@ -1,131 +1,97 @@
 # -*- coding: utf-8 -*-
-"""Arma la tabla de programas que consume la app, a partir del Excel oficial del ICFES.
+"""Arma la tabla de estudiantes que consume la app, desde SB11_20222.xlsx.
 
-Fuente:
-https://www.icfes.gov.co/wp-content/uploads/2026/05/2026-05-11-base-de-datos-de-resultados-agregados-de-saber-pro-2025.xlsx
-Resultados agregados Saber Pro 2025 (competencias genéricas), nivel programa académico.
+Saber 11, periodo 2022-2 (calendario B). El ACP usa solo los cinco puntajes
+de área. El puntaje global y el contexto socioeconómico se conservan para
+leer los clusters, y no entran al modelo.
 """
-import unicodedata
 from pathlib import Path
 
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
-SOURCE = HERE / "saber_pro_2025_agregados.xlsx"
-OUT = HERE / "saber_pro_2025_programas.csv"
+SOURCE = HERE / "SB11_20222.xlsx"
+OUT = HERE / "sb11_20222.csv"
 
-GENERIC = {
-    "LECTURA CRITICA": "lectura_critica",
-    "RAZONAMIENTO CUANTITATIVO": "razonamiento_cuantitativo",
-    "COMPETENCIAS CIUDADANAS": "competencias_ciudadanas",
-    "COMUNICACION ESCRITA": "comunicacion_escrita",
-    "INGLES": "ingles",
+RENAME = {
+    "ESTU_CONSECUTIVO": "estudiante_id",
+    "ESTU_GENERO": "genero",
+    "ESTU_TIENEETNIA": "tiene_etnia",
+    "ESTU_DEPTO_RESIDE": "depto_reside",
+    "FAMI_ESTRATOVIVIENDA": "estrato",
+    "FAMI_EDUCACIONMADRE": "educacion_madre",
+    "FAMI_TIENEINTERNET": "internet",
+    "FAMI_TIENECOMPUTADOR": "computador",
+    "ESTU_HORASSEMANATRABAJA": "horas_trabajo",
+    "COLE_NATURALEZA": "naturaleza_colegio",
+    "COLE_AREA_UBICACION": "area",
+    "COLE_JORNADA": "jornada",
+    "COLE_BILINGUE": "bilingue",
+    "COLE_CALENDARIO": "calendario",
+    "COLE_DEPTO_UBICACION": "depto_colegio",
+    "COLE_MCPIO_UBICACION": "municipio_colegio",
+    "ESTU_NSE_INDIVIDUAL": "nse",
+    "ESTU_NSE_ESTABLECIMIENTO": "nse_colegio",
+    "ESTU_INSE_INDIVIDUAL": "inse",
+    "PUNT_LECTURA_CRITICA": "lectura_critica",
+    "PUNT_MATEMATICAS": "matematicas",
+    "PUNT_C_NATURALES": "ciencias_naturales",
+    "PUNT_SOCIALES_CIUDADANAS": "sociales_ciudadanas",
+    "PUNT_INGLES": "ingles",
+    "PUNT_GLOBAL": "puntaje_global",
+    "ESTU_ESTADOINVESTIGACION": "estado",
 }
 
-
-def _norm(value) -> str:
-    text = unicodedata.normalize("NFKD", "" if pd.isna(value) else str(value))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return " ".join(text.upper().split())
+SCORE_COLS = [
+    "lectura_critica",
+    "matematicas",
+    "ciencias_naturales",
+    "sociales_ciudadanas",
+    "ingles",
+]
 
 
 def build() -> pd.DataFrame:
-    usecols = [
-        "AGREGACION",
-        "MEDIDA_AGREGACION",
-        "CANTIDADEVALUADOS",
-        "NOMBRE_DEPARTAMENTO",
-        "NOMBRE_MUNICIPIO",
-        "NOMBRE_INSTITUCION",
-        "NOMBRE_SEDE",
-        "NBC",
-        "ID_PROGRAMA_ACAD",
-        "NOMBRE_PROGRAMA_ACAD",
-        "NOMBRE_PRUEBA",
-        "CATEGORIAPRUEBA",
-        "PROMEDIO_GLOBAL",
-        "PROMEDIO_PRUEBA",
-        "DESVIACION",
-    ]
-    raw = pd.read_excel(SOURCE, usecols=usecols)
-    raw["_agregacion"] = raw["AGREGACION"].map(_norm)
-    raw["_medida"] = raw["MEDIDA_AGREGACION"].map(_norm)
-    raw["_prueba"] = raw["NOMBRE_PRUEBA"].map(_norm)
+    raw = pd.read_excel(SOURCE, usecols=list(RENAME))
+    print("filas leidas", len(raw))
+    if "ESTU_ESTADOINVESTIGACION" in raw.columns:
+        print(raw["ESTU_ESTADOINVESTIGACION"].value_counts(dropna=False).head(8).to_string())
+    raw = raw.rename(columns=RENAME)
+    for col in SCORE_COLS + ["puntaje_global", "inse"]:
+        raw[col] = pd.to_numeric(raw[col], errors="coerce")
 
-    programa = raw["_agregacion"].str.startswith("PROGRAMA")
-    generica = raw["CATEGORIAPRUEBA"].eq(1)
-    puntaje = raw["_medida"].eq("PUNTAJE_PRUEBA") & raw["_prueba"].isin(GENERIC)
-    modulos = raw.loc[programa & generica & puntaje].copy()
-    modulos["variable"] = modulos["_prueba"].map(GENERIC)
+    if "estado" in raw.columns:
+        estado = raw["estado"].astype(str).str.upper()
+        publicar = estado.str.contains("PUBLIC", na=False)
+        if publicar.any() and publicar.mean() >= 0.4:
+            raw = raw.loc[publicar].copy()
+            print("filas con estado publicable", len(raw))
 
-    contexto = (
-        modulos.groupby("ID_PROGRAMA_ACAD", as_index=False)
-        .agg(
-            institucion=("NOMBRE_INSTITUCION", "first"),
-            sede=("NOMBRE_SEDE", "first"),
-            programa=("NOMBRE_PROGRAMA_ACAD", "first"),
-            nbc=("NBC", "first"),
-            departamento=("NOMBRE_DEPARTAMENTO", "first"),
-            municipio=("NOMBRE_MUNICIPIO", "first"),
-            evaluados=("CANTIDADEVALUADOS", "max"),
-        )
-    )
+    antes = len(raw)
+    raw = raw.dropna(subset=SCORE_COLS).copy()
+    raw = raw[(raw[SCORE_COLS] > 0).all(axis=1)].copy()
+    print(f"filas con los 5 puntajes: {len(raw):,} (de {antes:,})")
 
-    promedios = modulos.pivot_table(
-        index="ID_PROGRAMA_ACAD",
-        columns="variable",
-        values="PROMEDIO_PRUEBA",
-        aggfunc="mean",
-    )
-    desviaciones = modulos.pivot_table(
-        index="ID_PROGRAMA_ACAD",
-        columns="variable",
-        values="DESVIACION",
-        aggfunc="mean",
-    )
-    desviaciones = desviaciones.rename(columns=lambda col: f"desv_{col}")
+    raw["estudiante_id"] = raw["estudiante_id"].astype(str)
+    for col in ("nse", "nse_colegio"):
+        if col in raw.columns:
+            num = pd.to_numeric(raw[col], errors="coerce")
+            raw[col] = num.map(lambda v: f"NSE {int(v)}" if pd.notna(v) else pd.NA)
+    for col in raw.select_dtypes(include="object").columns:
+        raw[col] = raw[col].astype(str).replace({"nan": pd.NA, "None": pd.NA})
 
-    global_mask = programa & raw["_medida"].eq("PUNTAJE_GLOBAL")
-    puntaje_global = (
-        raw.loc[global_mask]
-        .groupby("ID_PROGRAMA_ACAD")["PROMEDIO_GLOBAL"]
-        .mean()
-        .rename("puntaje_global")
-    )
-
-    tabla = (
-        contexto.merge(promedios.reset_index(), on="ID_PROGRAMA_ACAD", how="left")
-        .merge(desviaciones.reset_index(), on="ID_PROGRAMA_ACAD", how="left")
-        .merge(puntaje_global.reset_index(), on="ID_PROGRAMA_ACAD", how="left")
-    )
-    tabla = tabla.rename(columns={"ID_PROGRAMA_ACAD": "programa_id"})
-
-    score_cols = list(GENERIC.values())
-    antes = len(tabla)
-    tabla = tabla.dropna(subset=score_cols).copy()
-    tabla["programa_id"] = tabla["programa_id"].astype("int64").astype(str)
-    for col in score_cols + [f"desv_{c}" for c in score_cols] + ["puntaje_global", "evaluados"]:
-        tabla[col] = pd.to_numeric(tabla[col], errors="coerce")
-
-    ordered = [
-        "programa_id",
-        "institucion",
-        "sede",
-        "programa",
-        "nbc",
-        "departamento",
-        "municipio",
-        "evaluados",
-        "puntaje_global",
-        *score_cols,
-        *[f"desv_{c}" for c in score_cols],
-    ]
-    tabla = tabla[ordered].sort_values(["institucion", "programa"]).reset_index(drop=True)
-    print(f"programas con las 5 competencias: {len(tabla):,} (de {antes:,})")
-    print(tabla["evaluados"].describe().round(1).to_string())
-    tabla.to_csv(OUT, index=False, sep=";", encoding="utf-8-sig")
-    print("escrito", OUT, "filas", len(tabla))
-    return tabla
+    ordered = [c for c in [
+        "estudiante_id", "genero", "tiene_etnia", "depto_reside", "estrato",
+        "educacion_madre", "internet", "computador", "horas_trabajo",
+        "naturaleza_colegio", "area", "jornada", "bilingue", "calendario",
+        "depto_colegio", "municipio_colegio", "nse", "nse_colegio", "inse",
+        *SCORE_COLS, "puntaje_global",
+    ] if c in raw.columns]
+    raw = raw[ordered].reset_index(drop=True)
+    raw.to_csv(OUT, index=False, sep=";", encoding="utf-8-sig")
+    print("escrito", OUT, "mb", round(OUT.stat().st_size / 1e6, 2))
+    print(raw[SCORE_COLS].describe().round(1).to_string())
+    return raw
 
 
 if __name__ == "__main__":

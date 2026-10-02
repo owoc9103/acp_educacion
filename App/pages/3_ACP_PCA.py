@@ -20,7 +20,7 @@ from utils import (
 )
 
 st.set_page_config(
-    page_title="ACP / PCA | Saber Pro",
+    page_title="ACP / PCA | Saber 11",
     page_icon="🔬",
     layout="wide",
 )
@@ -57,7 +57,7 @@ $$
 \mathbf{X} \in \mathbb{R}^{n \times p}
 $$
 
-donde $n$ es el número de programas (observaciones) y $p$ el número de indicadores de competencia (variables).
+donde $n$ es el número de estudiantes (observaciones) y $p$ el número de puntajes de área (variables).
 Cada fila es un vector $\mathbf{x}_i^\top \in \mathbb{R}^{p}$.
 """
     )
@@ -109,7 +109,7 @@ $$
 \mathbf{Z} = \mathbf{X}\,\mathbf{V}_k \in \mathbb{R}^{n \times k}
 $$
 
-Cada columna $Z_j$ es el **score** de la componente $j$ para todos los programas.
+Cada columna $Z_j$ es el **score** de la componente $j$ para todos los estudiantes.
 En esta app, `pca_ccData` corresponde a $\mathbf{Z}$.
 """
     )
@@ -170,7 +170,7 @@ En el flujo de la aplicación:
 1. $\mathbf{X}$ = `norm_ccData` (datos estandarizados y normalizados).
 2. `PCA.fit_transform` calcula $\mathbf{Z}$ con las $k$ componentes seleccionadas.
 3. El gráfico de varianza usa $\text{VE}_j$ y $\text{VE}_{\mathrm{acum}}(k)$.
-4. El heatmap muestra las cargas para interpretar qué competencias definen cada eje.
+4. El heatmap muestra las cargas para interpretar qué puntajes definen cada eje.
 5. K-Means se aplica sobre $\mathbf{Z}$, no sobre las $p$ variables originales.
 """
     )
@@ -183,10 +183,9 @@ if not require_step("prep", "⚠️ Primero ejecuta el preprocesamiento en la p�
 st.markdown(
     """
 <div class="step-card">
-    <h4>¿Qué hace el ACP con Saber Pro?</h4>
-    <p>El ACP rota el espacio de competencias para encontrar direcciones (componentes)
-    que maximizan la varianza. Así se separa el desempeño general de los contrastes
-    entre pruebas, antes de aplicar K-Means.</p>
+    <h4>¿Qué hace el ACP con Saber 11?</h4>
+    <p>El ACP rota los cinco puntajes de área para separar un eje de desempeño general
+    de los contrastes entre pruebas, antes de aplicar K-Means.</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -285,7 +284,7 @@ if n_comp >= 2:
         )
         fig_sc = plot_pc_scatter(pca_cc_data, pc_x, pc_y, company_ids=company_ids)
         st.plotly_chart(fig_sc, width="stretch")
-        st.caption("Pasa el cursor sobre un punto para ver el **programa** (solo en el gráfico).")
+        st.caption("Pasa el cursor sobre un punto para ver el **estudiante**. Si hay muchos, el gráfico muestra una muestra.")
     else:
         st.info("Selecciona dos componentes distintos.")
 
@@ -363,4 +362,4 @@ for i in range(n_comp):
 with st.expander("📋 Tabla completa de cargas"):
     st.dataframe(loadings.round(3), width="stretch")
 
-st.info("Cuando hayas revisado el ACP, continúa en **K-Means** para segmentar los programas.")
+st.info("Cuando hayas revisado el ACP, continúa en **K-Means** para segmentar a los estudiantes.")

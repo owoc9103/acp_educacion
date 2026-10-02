@@ -16,7 +16,7 @@ from utils import (
 )
 
 st.set_page_config(
-    page_title="Datos | Saber Pro",
+    page_title="Datos | Saber 11",
     page_icon="📂",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -30,7 +30,7 @@ with st.sidebar:
 
 render_hero(
     "Datos y preprocesamiento",
-    "La base de programas Saber Pro 2025 se lee directamente desde la carpeta datos",
+    "Saber 11, periodo 2022-2: la base de estudiantes se lee desde la carpeta datos",
     kicker="Sin carga manual",
 )
 
@@ -51,25 +51,27 @@ st.markdown(
     """
 <div class="context-box">
 <h3>De dónde sale esta tabla</h3>
-<p>El archivo oficial del ICFES trae los resultados agregados de
-<strong>Saber Pro 2025</strong> en formato largo: muchas filas por programa,
-distintos niveles de agregación y decenas de módulos. Para el análisis se conservó
-el nivel <code>programa académico</code> y las cinco competencias genéricas
-(categoría de prueba 1), que son las que presentan casi todos los programas
-universitarios. Las competencias específicas cambian según la carrera y dejarían
-huecos que no conviene rellenar con ceros.</p>
-<p>Ruta conectada: <code>datos/saber_pro_2025_programas.csv</code>, construida desde
-<code>datos/saber_pro_2025_agregados.xlsx</code>.</p>
+<p>La fuente es <code>SB11_20222.xlsx</code>, microdatos de <strong>Saber 11</strong>
+del periodo <strong>2022-2</strong>. Cada fila es un estudiante. Al ACP entran solo
+los cinco puntajes de área: lectura crítica, matemáticas, ciencias naturales,
+sociales y ciudadanas, e inglés. El puntaje global, el INSE y las variables del
+colegio y del hogar se conservan para leer los grupos después, en
+<strong>Perfiles</strong>.</p>
+<p>Ruta conectada: <code>datos/sb11_20222.csv</code>.</p>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Programas", f"{df_raw.shape[0]:,}")
+c1.metric("Estudiantes", f"{df_raw.shape[0]:,}")
 c2.metric("Columnas", df_raw.shape[1])
-c3.metric("Instituciones", f"{df_raw['institucion'].nunique():,}")
-c4.metric("Año de la prueba", "2025")
+depto_col = "depto_colegio" if "depto_colegio" in df_raw.columns else None
+c3.metric(
+    "Departamentos del colegio",
+    f"{df_raw[depto_col].nunique():,}" if depto_col else "—",
+)
+c4.metric("Periodo", "2022-2")
 
 with st.expander("Vista previa de la base", expanded=False):
     st.dataframe(df_raw.head(12), width="stretch")
@@ -78,7 +80,7 @@ st.markdown("---")
 st.markdown("## Estructura de variables")
 
 for group, vars_list in VARIABLE_GROUPS.items():
-    with st.expander(f"{group} ({len(vars_list)} variables)", expanded=group.startswith("Competencias")):
+    with st.expander(f"{group} ({len(vars_list)} variables)", expanded=group.startswith("Puntajes")):
         st.write(", ".join(f"`{v}`" for v in vars_list))
 
 st.markdown("---")
@@ -93,34 +95,16 @@ id_col = st.selectbox(
     index=default_idx,
 )
 id_col = None if id_col == "— Sin columna ID —" else id_col
-
-min_eval = int(df_raw["evaluados"].min()) if "evaluados" in df_raw.columns else 1
-max_eval = int(df_raw["evaluados"].max()) if "evaluados" in df_raw.columns else 1
-slider_max = max(min_eval, min(max_eval, 200))
-umbral = st.slider(
-    "Mínimo de estudiantes evaluados para incluir el programa",
-    min_value=min_eval,
-    max_value=slider_max,
-    value=min(max(min_eval, 10), slider_max),
-    help="Los promedios de programas muy pequeños son inestables. El valor no entra al ACP; solo filtra filas.",
-)
-df_model = df_raw[df_raw["evaluados"] >= umbral].copy() if "evaluados" in df_raw.columns else df_raw
-st.caption(f"Programas que entran con este umbral: **{len(df_model):,}** de {len(df_raw):,}.")
-if (
-    st.session_state.get("steps_done", {}).get("prep")
-    and st.session_state.get("min_evaluados") not in (None, umbral)
-):
-    st.warning("Cambiaste el mínimo de evaluados. Vuelve a ejecutar el preprocesamiento para actualizar el ACP.")
+df_model = df_raw
 
 st.markdown(
     """
 <div class="step-card">
     <h4>Qué se transforma</h4>
-    <p>Se apartan el identificador, el número de evaluados y el puntaje global.
-    Sobre los promedios y las desviaciones de las cinco competencias se revisan faltantes,
-    se rellenan con 0 si aparecen, y se aplica <code>StandardScaler</code> seguido de
-    <code>normalize</code> antes del ACP. Así un puntaje de inglés y una desviación
-    no dominan el análisis solo por estar en otra escala.</p>
+    <p>Se aparta el identificador. El puntaje global y el INSE no entran al modelo.
+    Sobre los cinco puntajes de área se revisan faltantes, se rellenan con 0 si aparecen,
+    y se aplica <code>StandardScaler</code> seguido de <code>normalize</code>.
+    Así inglés y matemáticas pesan por su forma, no por estar en otra escala.</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -136,7 +120,6 @@ if st.button("Ejecutar preprocesamiento", type="primary"):
     st.session_state.norm_data = norm_data
     st.session_state.feature_names = list(cc_data.columns)
     st.session_state.id_col = id_col
-    st.session_state.min_evaluados = umbral
     st.session_state.steps_done = {"prep": True, "pca": False, "kmeans": False}
     st.session_state.pop("pca_full", None)
     st.success("Preprocesamiento completado. Continúa en **ACP / PCA**.")
@@ -149,8 +132,9 @@ if st.session_state.get("steps_done", {}).get("prep"):
     st.markdown("#### Resultados del preprocesamiento")
     if st.session_state.id_col:
         st.success(
-            f"Columna **`{st.session_state.id_col}`** apartada, junto con evaluados y puntaje global. "
-            f"**{cc_data.shape[1]}** variables numéricas listas para el ACP."
+            f"Columna **`{st.session_state.id_col}`** apartada. "
+            f"El puntaje global y el INSE quedan fuera del modelo. "
+            f"**{cc_data.shape[1]}** puntajes listos para el ACP."
         )
 
     missing_df = missing[missing > 0].reset_index()
@@ -168,8 +152,8 @@ if st.session_state.get("steps_done", {}).get("prep"):
         language="python",
     )
     st.info(
-        f"Matriz transformada: **{st.session_state.norm_data.shape[0]:,}** programas × "
-        f"**{st.session_state.norm_data.shape[1]}** competencias. "
+        f"Matriz transformada: **{st.session_state.norm_data.shape[0]:,}** estudiantes × "
+        f"**{st.session_state.norm_data.shape[1]}** puntajes. "
         "Sigue en **ACP / PCA**."
     )
     with st.expander("Estadísticas descriptivas de las variables del modelo"):

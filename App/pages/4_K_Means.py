@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
 
 from styles import apply_styles, render_hero, render_interpret_box
 from utils import (
@@ -24,7 +23,7 @@ from utils import (
 )
 
 st.set_page_config(
-    page_title="K-Means | Saber Pro",
+    page_title="K-Means | Saber 11",
     page_icon="🎯",
     layout="wide",
 )
@@ -36,8 +35,8 @@ with st.sidebar:
 
 render_hero(
     "Clustering con K-Means",
-    "Elección de k, segmentación en el espacio PCA y exportación de los programas",
-    kicker="Grupos de programas",
+    "Elección de k, segmentación en el espacio PCA y exportación",
+    kicker="Grupos de estudiantes",
 )
 
 with st.expander("📐 Detalle matemático de K-Means", expanded=True):
@@ -46,7 +45,7 @@ with st.expander("📐 Detalle matemático de K-Means", expanded=True):
 <div class="math-box">
 <h3>Fundamento matemático del algoritmo K-Means</h3>
 <p>K-Means particiona el espacio de observaciones en <strong>k grupos</strong> minimizando la suma
-de distancias cuadradas intra-cluster. En esta aplicación, los puntos a agrupar son los programas
+de distancias cuadradas intra-cluster. En esta aplicación, los puntos a agrupar son los estudiantes
 proyectadas en el espacio PCA (<code>pca_ccData</code>).</p>
 </div>
 """,
@@ -56,14 +55,14 @@ proyectadas en el espacio PCA (<code>pca_ccData</code>).</p>
     st.markdown("#### 1. Notación en el espacio PCA")
     st.markdown(
         r"""
-Tras el ACP, cada programa $i$ queda representado por un vector de scores en $\mathbb{R}^{k_{\mathrm{PCA}}}$:
+Tras el ACP, cada estudiante $i$ queda representado por un vector de scores en $\mathbb{R}^{k_{\mathrm{PCA}}}$:
 
 $$
 \mathbf{z}_i \in \mathbb{R}^{d}, \quad d = k_{\mathrm{PCA}}
 $$
 
 La matriz completa de datos transformados es $\mathbf{Z} \in \mathbb{R}^{n \times d}$, donde $n$ es
-el número de programas. K-Means opera sobre $\mathbf{Z}$, no sobre las $p$ variables originales.
+el número de estudiantes. K-Means opera sobre $\mathbf{Z}$, no sobre las $p$ variables originales.
 """
     )
 
@@ -190,7 +189,7 @@ indican clusters compactos y bien separados; valores cercanos a 0 o negativos su
 - Sensible a **outliers** e **inicialización** (mitigado con `n_init` y `random_state`).
 - Requiere fijar $K$ **a priori**.
 - En alta dimensionalidad el clustering es inestable; por eso aplicamos K-Means sobre $\mathbf{Z}$
-  (espacio PCA) y no sobre las $p$ competencias originales.
+  (espacio PCA) y no sobre los cinco puntajes originales.
 
 **En esta aplicación:**
 1. Entrada: $\mathbf{Z}$ = `pca_ccData` con $d$ componentes elegidas en el ACP.
@@ -209,8 +208,9 @@ st.markdown(
     """
 <div class="step-card">
     <h4>Segmentación no supervisada</h4>
-    <p>K-Means agrupa programas con perfiles de competencias similares en el espacio reducido por PCA.
-    Usa los gráficos de diagnóstico para elegir <em>k</em> y luego exporta la base con la columna <code>cluster</code>.</p>
+    <p>K-Means agrupa estudiantes con perfiles de puntaje similares en el espacio reducido por PCA.
+    Usa los gráficos de diagnóstico para elegir <em>k</em> y luego abre <strong>Perfiles</strong>
+    para cruzar los grupos con el colegio y el hogar.</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -226,12 +226,17 @@ n_clust = np.arange(2, max_k + 1)
 
 @st.cache_data(show_spinner="Calculando el codo y la silueta…")
 def _k_diagnostics(data: np.ndarray, k_max: int):
+    from sklearn.metrics import silhouette_score
+
     scores_sse, scores_sil = {}, {}
+    sample = min(len(data), 8000)
     for k in range(2, k_max + 1):
         km = KMeans(n_clusters=k, random_state=0, n_init=10)
         pred = km.fit_predict(data)
         scores_sse[k] = float(km.inertia_)
-        scores_sil[k] = float(silhouette_score(data, pred))
+        scores_sil[k] = float(
+            silhouette_score(data, pred, sample_size=sample, random_state=0)
+        )
     return scores_sse, scores_sil
 
 
@@ -252,6 +257,11 @@ st.info(
     f"💡 Mayor Silhouette en **k = {best_k}** ({silhouette_scores[best_k]:.4f}). "
     "Combina este criterio con el método del codo y con la pregunta de investigación."
 )
+if len(pca_cc_data) > 8000:
+    st.caption(
+        "La silueta usa una muestra de 8.000 estudiantes para poder calcularse. "
+        "La inercia y los grupos finales usan la base completa."
+    )
 
 st.markdown("## 2. Selección de k y ajuste final")
 
@@ -317,7 +327,7 @@ if n_comp >= 2:
     if cl_x != cl_y:
         fig_cl = plot_clusters(pca_cc_data, labels, cl_x, cl_y, company_ids=company_ids)
         st.plotly_chart(fig_cl, width="stretch")
-        st.caption("Pasa el cursor sobre un punto para ver el **programa** (solo en el gráfico).")
+        st.caption("Pasa el cursor sobre un punto para ver el **estudiante**. Si hay muchos, el gráfico muestra una muestra; los tamaños y el heatmap usan la base completa.")
     else:
         st.info("Selecciona dos componentes distintos para el scatter.")
 else:
@@ -327,11 +337,12 @@ st.markdown("---")
 
 # --- B. Heatmap medias estandarizadas (variables) ---
 st.markdown("### B. Heatmap de medias estandarizadas por cluster — variables originales")
+n_feat = max(2, cc_data.shape[1])
 hm_n_vars = st.slider(
     "Variables en el heatmap (según |carga| en el ACP)",
-    min_value=8,
-    max_value=25,
-    value=15,
+    min_value=min(3, n_feat),
+    max_value=n_feat,
+    value=n_feat,
     key="hm_cluster_vars",
 )
 hm_vars = get_top_variables_from_loadings(loadings, hm_n_vars)
@@ -401,7 +412,7 @@ tab_orig, tab_pca, tab_clust, tab_full = st.tabs([
 ])
 
 with tab_orig:
-    st.caption("Variables de la base conectada (`saber_pro_2025_programas.csv`).")
+    st.caption("Variables de la base conectada (`sb11_20222.csv`).")
     st.dataframe(df_result[original_cols].head(12), width="stretch")
 
 with tab_pca:
@@ -430,14 +441,14 @@ st.dataframe(dist, width="stretch", hide_index=True)
 
 csv_bytes = df_result.to_csv(index=False, sep=";").encode("utf-8-sig")
 st.download_button(
-    label="Descargar saber_pro_con_clusters.csv",
+    label="Descargar sb11_con_clusters.csv",
     data=csv_bytes,
-    file_name="saber_pro_con_clusters.csv",
+    file_name="sb11_con_clusters.csv",
     mime="text/csv",
     type="primary",
 )
 
 st.success(
     f"El CSV incluye **{len(original_cols)} columnas originales** + **{len(pc_cols)} PCs** + **`cluster`**. "
-    "Revisa **Reflexiones** y **Preguntas** en el menú lateral."
+    "Revisa **Perfiles**, **Reflexiones** y **Preguntas** en el menú lateral."
 )

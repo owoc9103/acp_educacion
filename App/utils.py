@@ -10,7 +10,17 @@ import streamlit as st
 from sklearn.preprocessing import StandardScaler, normalize
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_PATH = APP_DIR.parent / "datos" / "saber_pro_2025_programas.csv"
+DATA_PATH = APP_DIR.parent / "datos" / "sb11_20222.csv"
+PLOT_MAX_POINTS = 6000
+SILHOUETTE_SAMPLE = 8000
+
+SCORE_FEATURES = [
+    "lectura_critica",
+    "matematicas",
+    "ciencias_naturales",
+    "sociales_ciudadanas",
+    "ingles",
+]
 
 # Paleta Facultad de Ciencias Sociales y Económicas, Universidad del Valle
 COLOR_RED = "#a51e2c"
@@ -29,7 +39,7 @@ CLUSTER_COLORS = [
 ]
 
 # Columnas de contexto: se conservan en la base y no entran al ACP
-CONTEXT_NUMERIC = ["evaluados", "puntaje_global"]
+CONTEXT_NUMERIC = ["inse", "puntaje_global"]
 
 SESSION_KEYS = (
     "df_raw",
@@ -80,19 +90,19 @@ def require_step(step: str, message: str) -> bool:
     return True
 
 
-@st.cache_data(show_spinner="Leyendo la base de Saber Pro…")
+@st.cache_data(show_spinner="Leyendo la base de Saber 11…")
 def load_database() -> pd.DataFrame:
-    """Lee la tabla de programas ya conectada en la carpeta datos/."""
+    """Lee la tabla de estudiantes ya conectada en la carpeta datos/."""
     if not DATA_PATH.exists():
         raise FileNotFoundError(
             f"No está la base de análisis en {DATA_PATH}. "
-            "Ejecuta datos/preparar_base.py a partir del Excel del ICFES."
+            "Ejecuta datos/preparar_base.py a partir de SB11_20222.xlsx."
         )
-    return pd.read_csv(DATA_PATH, sep=";", encoding="utf-8-sig")
+    return pd.read_csv(DATA_PATH, sep=";", encoding="utf-8-sig", low_memory=False)
 
 
 def detect_id_column(df: pd.DataFrame) -> Optional[str]:
-    for col in ("programa_id", "empresa_id", "id", "ID", "Id"):
+    for col in ("estudiante_id", "programa_id", "empresa_id", "id", "ID", "Id"):
         if col in df.columns:
             return col
     for col in df.columns:
@@ -122,6 +132,9 @@ def run_preprocessing(
     drop_cols = [c for c in [id_col, *(exclude_cols or [])] if c]
     cc_data = df_raw.drop(columns=drop_cols, errors="ignore").copy()
     cc_data = get_numeric_features(cc_data)
+    score_cols = [c for c in SCORE_FEATURES if c in cc_data.columns]
+    if score_cols:
+        cc_data = cc_data[score_cols]
     missing = cc_data.isna().sum()
     if missing.sum() > 0:
         cc_data = cc_data.fillna(0)
@@ -371,19 +384,28 @@ def plot_variance_explained(ratio: np.ndarray):
 
 
 def get_company_ids(df_with_id: pd.DataFrame, id_col: Optional[str]) -> list:
-    """Etiqueta de programa para el hover de los gráficos."""
-    if {"institucion", "programa"}.issubset(df_with_id.columns):
-        labels = (
-            df_with_id["institucion"].fillna("").astype(str)
-            + " · "
-            + df_with_id["programa"].fillna("").astype(str)
-        )
-        if id_col and id_col in df_with_id.columns:
-            labels = df_with_id[id_col].astype(str) + " · " + labels
-        return labels.tolist()
+    """Etiqueta del estudiante para el hover de los gráficos."""
+    labels = None
     if id_col and id_col in df_with_id.columns:
-        return df_with_id[id_col].astype(str).tolist()
-    return [f"Observación {i + 1}" for i in range(len(df_with_id))]
+        labels = df_with_id[id_col].astype(str)
+    elif "estudiante_id" in df_with_id.columns:
+        labels = df_with_id["estudiante_id"].astype(str)
+    extras = [c for c in ("depto_colegio", "nse", "naturaleza_colegio") if c in df_with_id.columns]
+    if labels is not None and extras:
+        for col in extras:
+            labels = labels + " · " + df_with_id[col].fillna("").astype(str)
+        return labels.tolist()
+    if labels is not None:
+        return labels.tolist()
+    return [f"Estudiante {i + 1}" for i in range(len(df_with_id))]
+
+
+def sample_index(n: int, max_points: int = PLOT_MAX_POINTS, seed: int = 42) -> np.ndarray:
+    """Índices para graficar sin dibujar cientos de miles de puntos."""
+    if n <= max_points:
+        return np.arange(n)
+    rng = np.random.default_rng(seed)
+    return np.sort(rng.choice(n, size=max_points, replace=False))
 
 
 def build_clustered_export_df(
@@ -438,7 +460,7 @@ def interpret_cluster_from_pcs(
 
     lines = [
         f"<p><strong>Cluster {cluster_id}</strong> · "
-        f"N = {n_obs:,} programas · {pct_total:.1f}% del total · "
+        f"N = {n_obs:,} estudiantes · {pct_total:.1f}% del total · "
         f"Perfil PCA: <code>{profile_code}</code></p>",
         "<p><strong>Resumen de posición en componentes principales</strong></p>",
         "<ul>",
@@ -634,7 +656,7 @@ def interpret_cluster_from_variables(
 
     lines = [
         f"<p><strong>Cluster {cluster_id}</strong> · "
-        f"N = {n_obs:,} programas · {pct_total:.1f}% del total · "
+        f"N = {n_obs:,} estudiantes · {pct_total:.1f}% del total · "
         f"Competencias destacadas: {profile_code}</p>",
         "<p><strong>Resumen de medias estandarizadas</strong> "
         f"(mismo criterio del heatmap; |z| &gt; {Z_THRESHOLD} → diferenciador):</p>",
@@ -906,7 +928,7 @@ def plot_cluster_sizes(labels: np.ndarray):
         template="plotly_white",
         height=460,
         showlegend=False,
-        yaxis_title="Número de programas",
+        yaxis_title="Número de estudiantes",
     )
     return fig
 
@@ -921,19 +943,21 @@ def plot_pc_scatter(
     import plotly.express as px
 
     n = len(pca_data)
-    ids = company_ids if company_ids and len(company_ids) == n else [f"Programa {i + 1}" for i in range(n)]
+    idx = sample_index(n)
+    ids_all = company_ids if company_ids and len(company_ids) == n else [f"Estudiante {i + 1}" for i in range(n)]
+    ids = [ids_all[i] for i in idx]
 
     df_plot = pd.DataFrame({
-        f"PC{pc_x}": pca_data[:, pc_x - 1],
-        f"PC{pc_y}": pca_data[:, pc_y - 1],
-        "programa_id": ids,
+        f"PC{pc_x}": pca_data[idx, pc_x - 1],
+        f"PC{pc_y}": pca_data[idx, pc_y - 1],
+        "estudiante_id": ids,
     })
 
     fig = px.scatter(
         df_plot,
         x=f"PC{pc_x}",
         y=f"PC{pc_y}",
-        hover_name="programa_id",
+        hover_name="estudiante_id",
         title=f"Dispersión: PC{pc_x} vs PC{pc_y}",
     )
     fig.update_traces(
@@ -1068,13 +1092,15 @@ def plot_clusters(
     import plotly.express as px
 
     n = len(pca_data)
-    ids = company_ids if company_ids and len(company_ids) == n else [f"Programa {i + 1}" for i in range(n)]
+    idx = sample_index(n)
+    ids_all = company_ids if company_ids and len(company_ids) == n else [f"Estudiante {i + 1}" for i in range(n)]
+    ids = [ids_all[i] for i in idx]
 
     df_plot = pd.DataFrame({
-        f"PC{pc_x}": pca_data[:, pc_x - 1],
-        f"PC{pc_y}": pca_data[:, pc_y - 1],
-        "cluster": [f"Cluster {c}" for c in labels],
-        "programa_id": ids,
+        f"PC{pc_x}": pca_data[idx, pc_x - 1],
+        f"PC{pc_y}": pca_data[idx, pc_y - 1],
+        "cluster": [f"Cluster {int(labels[i])}" for i in idx],
+        "estudiante_id": ids,
     })
 
     fig = px.scatter(
@@ -1082,7 +1108,7 @@ def plot_clusters(
         x=f"PC{pc_x}",
         y=f"PC{pc_y}",
         color="cluster",
-        hover_name="programa_id",
+        hover_name="estudiante_id",
         color_discrete_sequence=CLUSTER_COLORS,
         title="Visualización de clústeres con K-Means en espacio PCA",
         labels={
@@ -1114,18 +1140,91 @@ def plot_clusters(
     return fig
 
 
-# Grupos de variables (saber_pro_2025_programas.csv)
+# Grupos de variables (sb11_20222.csv). Solo SCORE_FEATURES entra al ACP.
 VARIABLE_GROUPS = {
-    "Contexto del programa": [
-        "programa_id", "institucion", "sede", "programa", "nbc",
-        "departamento", "municipio", "evaluados", "puntaje_global",
-    ],
-    "Competencias genéricas (promedio del programa)": [
-        "lectura_critica", "razonamiento_cuantitativo", "competencias_ciudadanas",
-        "comunicacion_escrita", "ingles",
-    ],
-    "Dispersión interna (desviación del programa)": [
-        "desv_lectura_critica", "desv_razonamiento_cuantitativo",
-        "desv_competencias_ciudadanas", "desv_comunicacion_escrita", "desv_ingles",
+    "Puntajes de área (entran al ACP)": SCORE_FEATURES,
+    "Contexto que no entra al modelo": [
+        "estudiante_id", "genero", "tiene_etnia", "depto_reside", "estrato",
+        "educacion_madre", "internet", "computador", "horas_trabajo",
+        "naturaleza_colegio", "area", "jornada", "bilingue", "calendario",
+        "depto_colegio", "municipio_colegio", "nse", "nse_colegio", "inse",
+        "puntaje_global",
     ],
 }
+
+
+def plot_score_profile(cc_data: pd.DataFrame, labels: np.ndarray):
+    """Medias de los puntajes originales por cluster."""
+    import plotly.express as px
+
+    frame = cc_data.copy()
+    frame["cluster"] = labels
+    means = frame.groupby("cluster")[list(cc_data.columns)].mean().round(1).reset_index()
+    long = means.melt(id_vars="cluster", var_name="Prueba", value_name="Puntaje medio")
+    long["Cluster"] = long["cluster"].map(lambda c: f"Cluster {int(c)}")
+    fig = px.bar(
+        long,
+        x="Prueba",
+        y="Puntaje medio",
+        color="Cluster",
+        barmode="group",
+        title="Puntaje medio por prueba y cluster",
+        color_discrete_sequence=CLUSTER_COLORS,
+    )
+    fig.update_layout(template="plotly_white", height=480, xaxis_title="", yaxis_title="Puntaje medio")
+    return fig
+
+
+def plot_cluster_composition(df: pd.DataFrame, column: str, title: str, top_n: int = 8):
+    """Porcentaje de cada categoría dentro del cluster."""
+    import plotly.express as px
+
+    work = df[[column, "cluster"]].dropna().copy()
+    work[column] = work[column].astype(str)
+    counts = work[column].value_counts()
+    if len(counts) > top_n:
+        keep = set(counts.head(top_n).index)
+        work[column] = work[column].where(work[column].isin(keep), "Otros")
+    share = (
+        work.groupby(["cluster", column]).size().rename("n").reset_index()
+    )
+    share["pct"] = share.groupby("cluster")["n"].transform(lambda s: 100 * s / s.sum())
+    share["Cluster"] = share["cluster"].map(lambda c: f"Cluster {int(c)}")
+    fig = px.bar(
+        share,
+        x="Cluster",
+        y="pct",
+        color=column,
+        title=title,
+        color_discrete_sequence=CLUSTER_COLORS,
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=480,
+        barmode="stack",
+        yaxis_title="% del cluster",
+        xaxis_title="",
+        legend_title_text=column,
+    )
+    return fig
+
+
+def plot_numeric_by_cluster(series: pd.Series, labels: np.ndarray, name: str, title: str):
+    """Caja de una variable numérica de contexto según el cluster."""
+    import plotly.express as px
+
+    df_plot = pd.DataFrame({name: series, "Cluster": [f"Cluster {int(c)}" for c in labels]})
+    df_plot = df_plot.dropna()
+    if len(df_plot) > PLOT_MAX_POINTS:
+        df_plot = df_plot.sample(PLOT_MAX_POINTS, random_state=42)
+    fig = px.box(
+        df_plot,
+        x="Cluster",
+        y=name,
+        color="Cluster",
+        title=title,
+        color_discrete_sequence=CLUSTER_COLORS,
+        points=False,
+    )
+    fig.update_layout(template="plotly_white", height=480, showlegend=False)
+    return fig
