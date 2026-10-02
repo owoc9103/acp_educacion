@@ -412,7 +412,7 @@ tab_orig, tab_pca, tab_clust, tab_full = st.tabs([
 ])
 
 with tab_orig:
-    st.caption("Variables de la base conectada (`sb11_20222.csv`).")
+    st.caption("Variables de la base conectada (`sb11_20222.csv.gz`).")
     st.dataframe(df_result[original_cols].head(12), width="stretch")
 
 with tab_pca:

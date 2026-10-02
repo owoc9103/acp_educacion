@@ -57,7 +57,7 @@ los cinco puntajes de área: lectura crítica, matemáticas, ciencias naturales,
 sociales y ciudadanas, e inglés. El puntaje global, el INSE y las variables del
 colegio y del hogar se conservan para leer los grupos después, en
 <strong>Perfiles</strong>.</p>
-<p>Ruta conectada: <code>datos/sb11_20222.csv</code>.</p>
+<p>Ruta conectada: <code>datos/sb11_20222.csv.gz</code>.</p>
 </div>
 """,
     unsafe_allow_html=True,

@@ -10,7 +10,22 @@ import streamlit as st
 from sklearn.preprocessing import StandardScaler, normalize
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_PATH = APP_DIR.parent / "datos" / "sb11_20222.csv"
+DATA_DIR = APP_DIR.parent / "datos"
+DATA_CANDIDATES = (
+    DATA_DIR / "sb11_20222.csv.gz",
+    DATA_DIR / "sb11_20222.csv",
+)
+
+
+def resolve_data_path() -> Path:
+    """Prefiere el archivo comprimido, que es el que viaja en el repositorio."""
+    for path in DATA_CANDIDATES:
+        if path.exists():
+            return path
+    return DATA_CANDIDATES[0]
+
+
+DATA_PATH = resolve_data_path()
 PLOT_MAX_POINTS = 6000
 SILHOUETTE_SAMPLE = 8000
 
@@ -93,12 +108,14 @@ def require_step(step: str, message: str) -> bool:
 @st.cache_data(show_spinner="Leyendo la base de Saber 11…")
 def load_database() -> pd.DataFrame:
     """Lee la tabla de estudiantes ya conectada en la carpeta datos/."""
-    if not DATA_PATH.exists():
+    path = resolve_data_path()
+    if not path.exists():
         raise FileNotFoundError(
-            f"No está la base de análisis en {DATA_PATH}. "
-            "Ejecuta datos/preparar_base.py a partir de SB11_20222.xlsx."
+            "No está la base de análisis. Se buscó "
+            + " y ".join(str(p.name) for p in DATA_CANDIDATES)
+            + " dentro de la carpeta datos."
         )
-    return pd.read_csv(DATA_PATH, sep=";", encoding="utf-8-sig", low_memory=False)
+    return pd.read_csv(path, sep=";", encoding="utf-8-sig", low_memory=False)
 
 
 def detect_id_column(df: pd.DataFrame) -> Optional[str]:

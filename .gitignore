@@ -2,7 +2,8 @@ __pycache__/
 *.py[cod]
 .streamlit/secrets.toml
 
-# Bases del ICFES. Se leen en local y no van al repositorio.
+# El Excel original y el CSV sin comprimir no van al repositorio.
+# La app publicada lee datos/sb11_20222.csv.gz.
 datos/*.xlsx
 datos/*.xls
 datos/*.csv

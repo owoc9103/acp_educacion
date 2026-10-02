@@ -12,6 +12,7 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "SB11_20222.xlsx"
 OUT = HERE / "sb11_20222.csv"
+OUT_GZ = HERE / "sb11_20222.csv.gz"
 
 RENAME = {
     "ESTU_CONSECUTIVO": "estudiante_id",
@@ -89,7 +90,9 @@ def build() -> pd.DataFrame:
     ] if c in raw.columns]
     raw = raw[ordered].reset_index(drop=True)
     raw.to_csv(OUT, index=False, sep=";", encoding="utf-8-sig")
+    raw.to_csv(OUT_GZ, index=False, sep=";", encoding="utf-8-sig", compression="gzip")
     print("escrito", OUT, "mb", round(OUT.stat().st_size / 1e6, 2))
+    print("escrito", OUT_GZ, "mb", round(OUT_GZ.stat().st_size / 1e6, 2))
     print(raw[SCORE_COLS].describe().round(1).to_string())
     return raw
 
