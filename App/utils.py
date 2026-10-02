@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Utilidades compartidas: datos, preprocesamiento y gráficos."""
 
+import json
+import unicodedata
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -1244,4 +1247,92 @@ def plot_numeric_by_cluster(series: pd.Series, labels: np.ndarray, name: str, ti
         points=False,
     )
     fig.update_layout(template="plotly_white", height=480, showlegend=False)
+    return fig
+
+
+DEPTO_ALIASES = {
+    "BOGOTA": "BOGOTA, DC",
+    "VALLE": "VALLE DEL CAUCA",
+    "NORTE SANTANDER": "NORTE DE SANTANDER",
+    "SAN ANDRES": "ARCHIPIELAGO DE SAN ANDRES, PROVIDENCIA Y SANTA CATALINA",
+}
+
+
+def _norm_depto(value) -> str:
+    text = unicodedata.normalize("NFKD", "" if pd.isna(value) else str(value))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = " ".join(text.upper().replace(".", "").split())
+    return DEPTO_ALIASES.get(text, text)
+
+
+@lru_cache(maxsize=1)
+def _load_department_geojson() -> dict:
+    path = APP_DIR / "assets" / "colombia_departamentos.geojson"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def department_cluster_table(df: pd.DataFrame, column: str = "depto_colegio") -> pd.DataFrame:
+    """Porcentaje de cada cluster dentro del departamento."""
+    work = df[[column, "cluster"]].dropna().copy()
+    work["match_name"] = work[column].map(_norm_depto)
+    counts = work.groupby(["match_name", "cluster"]).size().rename("n").reset_index()
+    totals = counts.groupby("match_name")["n"].transform("sum")
+    counts["pct"] = 100 * counts["n"] / totals
+    wide_n = counts.pivot(index="match_name", columns="cluster", values="n").fillna(0)
+    wide_p = counts.pivot(index="match_name", columns="cluster", values="pct").fillna(0)
+    geo_names = {
+        feat["properties"]["match_name"]: feat["properties"]["nombre"]
+        for feat in _load_department_geojson()["features"]
+    }
+    out = pd.DataFrame({
+        "match_name": wide_n.index,
+        "Departamento": [geo_names.get(name, name) for name in wide_n.index],
+        "Estudiantes": wide_n.sum(axis=1).astype(int).values,
+    })
+    for cl in sorted(wide_p.columns):
+        out[f"Cluster {int(cl)} (%)"] = wide_p[cl].round(1).values
+    return out.sort_values("Estudiantes", ascending=False).reset_index(drop=True)
+
+
+def plot_department_cluster_map(df: pd.DataFrame, cluster_id: int, column: str = "depto_colegio"):
+    """Mapa de Colombia coloreado por el porcentaje del cluster dentro de cada departamento."""
+    import plotly.express as px
+
+    table = department_cluster_table(df, column)
+    pct_col = f"Cluster {int(cluster_id)} (%)"
+    geo = _load_department_geojson()
+    plot_df = table.copy()
+    plot_df["nombre"] = plot_df["Departamento"]
+    pct_cols = [c for c in plot_df.columns if c.endswith("(%)")]
+    plot_df["composicion"] = [
+        "<br>".join(f"{col.replace(' (%)', '')}: {rec[col]:.1f}%" for col in pct_cols)
+        for rec in plot_df.to_dict("records")
+    ]
+    color = CLUSTER_COLORS[int(cluster_id) % len(CLUSTER_COLORS)]
+    fig = px.choropleth(
+        plot_df,
+        geojson=geo,
+        locations="match_name",
+        featureidkey="properties.match_name",
+        color=pct_col,
+        color_continuous_scale=[[0, "#f4efe9"], [1, color]],
+        range_color=(0, 100),
+        hover_name="nombre",
+        custom_data=["Estudiantes", "composicion"],
+        title=f"Participación del Cluster {int(cluster_id)} en cada departamento",
+    )
+    fig.update_traces(
+        hovertemplate=(
+            "<b>%{hovertext}</b><br>"
+            "Estudiantes: %{customdata[0]:,}<br>"
+            "%{customdata[1]}<extra></extra>"
+        )
+    )
+    fig.update_geos(fitbounds="locations", visible=False)
+    fig.update_layout(
+        template="plotly_white",
+        height=560,
+        margin=dict(l=0, r=0, t=50, b=0),
+        coloraxis_colorbar=dict(title="% del<br>departamento"),
+    )
     return fig

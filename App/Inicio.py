@@ -36,14 +36,8 @@ st.markdown(
     """
 <div class="context-box">
 <h3>De un puntaje a una pregunta sociológica</h3>
-<p>Saber 11 es el examen de Estado al cierre de la educación media en Colombia.
-Esta base corresponde al periodo <strong>2022-2</strong>. El ICFES resume el
-desempeño en cinco puntajes: lectura crítica, matemáticas, ciencias naturales,
-sociales y ciudadanas, e inglés. La aplicación no clasifica “buenos” y “malos”
-estudiantes. Busca <strong>perfiles</strong>: grupos que se parecen en la forma
-del resultado, no solo en el puntaje global.</p>
-<p>La base ya está conectada. No hay que cargarla. Cada fila es un estudiante
-de <code>SB11_20222.xlsx</code>.</p>
+<p>Saber 11 es el examen de Estado que presentan los estudiantes al finalizar la educación media en Colombia. Para esta aplicación se utiliza la base correspondiente al periodo 2022-2, que contiene resultados en lectura crítica, matemáticas, ciencias naturales, sociales y ciudadanas e inglés. El interés no está en clasificar estudiantes como “buenos” o “malos”, sino en identificar formas diferenciadas de desempeño. La aplicación busca reconocer perfiles de estudiantes que presentan patrones semejantes entre áreas, permitiendo observar heterogeneidad que puede quedar oculta cuando se utiliza únicamente el puntaje global.
+Así conecta mejor con la idea central de la exposición: pasar del promedio o resultado agregado a la heterogeneidad de los perfiles.</p>
 </div>
 """,
     unsafe_allow_html=True,

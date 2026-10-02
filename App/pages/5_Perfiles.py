@@ -4,8 +4,10 @@ import streamlit as st
 
 from styles import apply_styles, render_hero
 from utils import (
+    department_cluster_table,
     init_session,
     plot_cluster_composition,
+    plot_department_cluster_map,
     plot_numeric_by_cluster,
     plot_score_profile,
     render_progress_sidebar,
@@ -109,23 +111,31 @@ for column, title in CONTEXT_PLOTS:
 if shown == 0:
     st.warning("No hay variables de contexto con suficiente información para cruzar.")
 
-st.markdown("## 4. Dónde se concentran los grupos")
+st.markdown("## 4. Mapa de Colombia por departamento")
+st.caption(
+    "Cada departamento se colorea según el porcentaje de sus estudiantes que cae en ese cluster. "
+    "Al pasar el cursor se ve la composición completa. El territorio es el del colegio."
+)
 if "depto_colegio" in df.columns:
-    top = (
-        df.groupby(["cluster", "depto_colegio"])
-        .size()
-        .rename("Estudiantes")
-        .reset_index()
-    )
-    top["Cluster"] = top["cluster"].map(lambda c: f"Cluster {int(c)}")
-    top = top.sort_values(["cluster", "Estudiantes"], ascending=[True, False])
-    resumen = top.groupby("Cluster", as_index=False).head(5)
-    resumen = resumen.rename(columns={"depto_colegio": "Departamento"})
-    st.dataframe(
-        resumen[["Cluster", "Departamento", "Estudiantes"]],
-        width="stretch",
-        hide_index=True,
-    )
-    st.caption("Los cinco departamentos con más estudiantes dentro de cada cluster.")
+    clusters = sorted(int(c) for c in df["cluster"].dropna().unique())
+    if len(clusters) <= 4:
+        map_cols = st.columns(2)
+        for i, cluster_id in enumerate(clusters):
+            with map_cols[i % 2]:
+                st.plotly_chart(
+                    plot_department_cluster_map(df, cluster_id),
+                    width="stretch",
+                )
+    else:
+        chosen = st.selectbox(
+            "Cluster que colorea el mapa",
+            clusters,
+            format_func=lambda c: f"Cluster {c}",
+        )
+        st.plotly_chart(plot_department_cluster_map(df, chosen), width="stretch")
+
+    comp = department_cluster_table(df).drop(columns=["match_name"])
+    st.dataframe(comp, width="stretch", hide_index=True)
+    st.caption("Porcentaje de cada cluster dentro del departamento, ordenado por número de estudiantes.")
 
 st.info("Estos cruces no cambian la segmentación. Muestran con quién coincide cada perfil de puntaje.")
