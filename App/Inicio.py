@@ -37,7 +37,7 @@ st.markdown(
 <div class="context-box">
 <h3>De un puntaje a una pregunta sociológica</h3>
 <p>Saber 11 es el examen de Estado que presentan los estudiantes al finalizar la educación media en Colombia. Para esta aplicación se utiliza la base correspondiente al periodo 2022-2, que contiene resultados en lectura crítica, matemáticas, ciencias naturales, sociales y ciudadanas e inglés. El interés no está en clasificar estudiantes como “buenos” o “malos”, sino en identificar formas diferenciadas de desempeño. La aplicación busca reconocer perfiles de estudiantes que presentan patrones semejantes entre áreas, permitiendo observar heterogeneidad que puede quedar oculta cuando se utiliza únicamente el puntaje global.
-Así conecta mejor con la idea central de la exposición: pasar del promedio o resultado agregado a la heterogeneidad de los perfiles.</p>
+La idea principal es pasar del promedio o resultado agregado a la heterogeneidad de los perfiles.</p>
 </div>
 """,
     unsafe_allow_html=True,
